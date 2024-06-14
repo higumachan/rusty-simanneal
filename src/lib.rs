@@ -13,12 +13,87 @@ use crate::schedule::Progress;
 mod metrics;
 pub mod schedule;
 
+/// Transition is a trait to be implemented when the state can be updated by a transition.
+/// e.g.
+///```rust
+/// use rand::Rng;
+/// use rusty_simanneal::Transition;
+///
+/// #[derive(Debug, Clone, Copy)]
+/// enum QuadraticFunctionTransition {
+///     Add(f64),
+///     Mul(f64),
+/// }
+///
+/// impl<G: Rng> Transition<G> for QuadraticFunctionTransition {
+///     type Context = QuadraticFunction;
+///
+///     fn choose(rng: &mut G, _ctx: &Self::Context) -> Self {
+///         match rng.gen_range(0..=1) {
+///             0 => Self::Add(rng.gen_range(-10.0..=10.0)),
+///             1 => Self::Mul(rng.gen_range(0.3..=1.1)),
+///             _ => unreachable!(),
+///         }
+///     }
+/// }
+///
+/// struct QuadraticFunction {
+///     a: f64,
+///     b: f64,
+///     c: f64,
+/// }
+///
+/// let func = QuadraticFunction {
+///     a: 1.0,
+///     b: 10.0,
+///     c: 30.0,
+/// };
+/// let op = QuadraticFunctionTransition::choose(&mut rand::thread_rng(), &func);
+/// assert!(matches!(
+///     op,
+///     QuadraticFunctionTransition::Add(_) | QuadraticFunctionTransition::Mul(_)
+/// ));
+/// ```
 pub trait Transition<G: Rng>: Sized + Clone + Copy {
     type Context;
 
     fn choose(rng: &mut G, ctx: &Self::Context) -> Self;
 }
 
+/// EnergyMeasurable is a trait to be implemented when the energy of the state can be calculated.
+/// e.g. quadratic function
+/// ```rust
+/// use rand::Rng;
+/// use rusty_simanneal::{EnergyMeasurable, Transition};
+///
+/// struct QuadraticFunction {
+///     a: f64,
+///     b: f64,
+///     c: f64,
+/// }
+/// #[derive(Debug, Clone)]
+/// struct QuadraticFunctionState {
+///     x: f64,
+/// }
+///
+/// impl EnergyMeasurable for QuadraticFunctionState {
+///     type Energy = f64;
+///     type Context = QuadraticFunction;
+///
+///     fn energy(&self, ctx: &Self::Context) -> Self::Energy {
+///         let f = ctx.a * self.x * self.x + ctx.b * self.x + ctx.c;
+///         f * ctx.a.signum()
+///     }
+/// }
+///
+/// let func = QuadraticFunction {
+///     a: 1.0,
+///     b: 10.0,
+///     c: 30.0,
+/// };
+/// let state = QuadraticFunctionState { x: -5.0 };
+/// assert_eq!(state.energy(&func), 5.0);
+/// ```
 pub trait EnergyMeasurable: Sized + Clone + Debug {
     type Energy: PartialOrd
         + Clone
@@ -34,6 +109,77 @@ pub trait EnergyMeasurable: Sized + Clone + Debug {
     fn energy(&self, ctx: &Self::Context) -> Self::Energy;
 }
 
+/// AnnealingState is a trait to be implemented when the state can be updated by a transition.
+/// e.g. quadratic function
+/// ```rust
+/// use rand::Rng;
+/// use rusty_simanneal::{Annealer, AnnealingState, EnergyMeasurable, schedule, Transition};
+///
+/// #[derive(Debug, Clone, Copy)]
+/// enum QuadraticFunctionTransition {
+///     Add(f64),
+///     Mul(f64),
+/// }
+///
+/// impl<G: Rng> Transition<G> for QuadraticFunctionTransition {
+///     type Context = QuadraticFunction;
+///
+///     fn choose(rng: &mut G, _ctx: &Self::Context) -> Self {
+///         match rng.gen_range(0..=1) {
+///             0 => Self::Add(rng.gen_range(-10.0..=10.0)),
+///             1 => Self::Mul(rng.gen_range(0.3..=1.1)),
+///             _ => unreachable!(),
+///         }
+///     }
+/// }
+///
+/// struct QuadraticFunction {
+///     a: f64,
+///     b: f64,
+///     c: f64,
+/// }
+/// #[derive(Debug, Clone)]
+/// struct QuadraticFunctionState {
+///     x: f64,
+/// }
+///
+/// impl EnergyMeasurable for QuadraticFunctionState {
+///     type Energy = f64;
+///     type Context = QuadraticFunction;
+///
+///     fn energy(&self, ctx: &Self::Context) -> Self::Energy {
+///         let f = ctx.a * self.x * self.x + ctx.b * self.x + ctx.c;
+///         f * ctx.a.signum()
+///     }
+/// }
+///
+/// impl<G: Rng> AnnealingState<G> for QuadraticFunctionState {
+///     type Transition = QuadraticFunctionTransition;
+///
+///     fn apply(&mut self, _ctx: &Self::Context, op: &Self::Transition) -> Option<()> {
+///         match op {
+///             QuadraticFunctionTransition::Add(dx) => {
+///                 self.x += dx;
+///             }
+///             QuadraticFunctionTransition::Mul(rx) => {
+///                 self.x *= rx;
+///             }
+///         }
+///         Some(())
+///     }
+/// }
+///
+/// let func = QuadraticFunction {
+///     a: 1.0,
+///     b: 10.0,
+///     c: 30.0,
+/// };
+///
+/// let mut state = QuadraticFunctionState { x: 100.0 };
+/// let mut annealer = Annealer::new(state, func, schedule::LinearStepSchedule::new(1000.0, 0.01, 10000));
+/// let best_state = annealer.anneal::<false>(&mut rand::thread_rng());
+/// assert!((best_state.x - (-5.0)).abs() < 0.1);
+/// ```
 pub trait AnnealingState<G: Rng>: EnergyMeasurable {
     type Transition: Transition<G, Context = Self::Context> + Debug;
 
