@@ -3,6 +3,8 @@ use std::time::{Duration, Instant};
 pub trait Schedule {
     type Progress: Progress;
 
+    fn progress_0_1(&self, progress: &Self::Progress) -> f64;
+
     fn should_continue(&self, progress: &Self::Progress) -> bool;
     fn temperature(&self, progress: &Self::Progress) -> f64;
 }
@@ -81,6 +83,10 @@ impl LinearStepSchedule {
 impl Schedule for LinearStepSchedule {
     type Progress = Step;
 
+    fn progress_0_1(&self, progress: &Self::Progress) -> f64 {
+        progress.progress(self.max_steps)
+    }
+
     fn should_continue(&self, progress: &Self::Progress) -> bool {
         progress.0 < self.max_steps
     }
@@ -110,6 +116,10 @@ impl LinearTimeSchedule {
 impl Schedule for LinearTimeSchedule {
     type Progress = Time;
 
+    fn progress_0_1(&self, progress: &Self::Progress) -> f64 {
+        progress.progress(self.max_time)
+    }
+
     fn should_continue(&self, progress: &Self::Progress) -> bool {
         progress.current - progress.start < self.max_time
     }
@@ -136,7 +146,7 @@ mod tests {
         progress.update();
         progress.update();
 
-        assert_eq!(scheduler.should_continue(&progress), true);
+        assert!(scheduler.should_continue(&progress));
         assert_eq!(scheduler.temperature(&progress), 0.5);
     }
 
@@ -150,7 +160,7 @@ mod tests {
         sleep(Duration::from_millis(50));
         progress.update();
 
-        assert_eq!(scheduler.should_continue(&progress), true);
+        assert!(scheduler.should_continue(&progress));
         assert!(
             0.40 < scheduler.temperature(&progress) && scheduler.temperature(&progress) < 0.60,
             "Temperature: {}",
