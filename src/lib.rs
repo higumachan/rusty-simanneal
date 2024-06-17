@@ -54,10 +54,11 @@ pub mod schedule;
 ///     QuadraticFunctionTransition::Add(_) | QuadraticFunctionTransition::Mul(_)
 /// ));
 /// ```
-pub trait Transition<G: Rng>: Sized + Clone + Copy {
+pub trait Transition: Sized + Clone + Copy {
     type Context;
+    type State;
 
-    fn choose(rng: &mut G, ctx: &Self::Context) -> Self;
+    fn choose<G: Rng>(rng: &mut G, ctx: &Self::Context, state: &Self::State) -> Self;
 }
 
 /// EnergyMeasurable is a trait to be implemented when the energy of the state can be calculated.
@@ -180,14 +181,14 @@ pub trait EnergyMeasurable: Sized + Clone + Debug {
 /// let best_state = annealer.anneal::<false>(&mut rand::thread_rng());
 /// assert!((best_state.x - (-5.0)).abs() < 0.1);
 /// ```
-pub trait AnnealingState<G: Rng>: EnergyMeasurable {
-    type Transition: Transition<G, Context = Self::Context> + Debug;
+pub trait AnnealingState: EnergyMeasurable {
+    type Transition: Transition<Context = Self::Context, State = Self> + Debug;
 
     fn apply(&mut self, ctx: &Self::Context, op: &Self::Transition) -> Option<()>;
 }
 
 /// AnnealingStatePeeking is a trait to be implemented when the energy of the next state can be calculated efficiently without updating the state.
-pub trait AnnealingStatePeeking<G: Rng>: AnnealingState<G> {
+pub trait AnnealingStatePeeking: AnnealingState {
     /// Peek the energy of the state after applying the transition
     fn peek_energy(
         &self,
@@ -198,42 +199,40 @@ pub trait AnnealingStatePeeking<G: Rng>: AnnealingState<G> {
 }
 
 /// AnnealingStateBack is implemented when the state can be back processed more efficiently than clone.
-pub trait AnnealingStateBack<G: Rng>: AnnealingState<G> {
+pub trait AnnealingStateBack: AnnealingState {
     type Restore;
 
     /// Apply the transition and restore information for returning to the previous state
     fn apply_with_restore(
         &mut self,
-        ctx: &mut Self::Context,
+        ctx: &Self::Context,
         op: &Self::Transition,
     ) -> Option<Self::Restore>;
 
     /// Restore the state to the previous state
-    fn back(&mut self, ctx: &mut Self::Context, restore: &Self::Restore);
+    fn back(&mut self, ctx: &Self::Context, restore: &Self::Restore);
 }
 
 /// Simulated Annealing algorithm
 /// minimize f(x) where x is a state
-pub struct Annealer<G: Rng, S: EnergyMeasurable, C: Schedule> {
+pub struct Annealer<S: EnergyMeasurable, C: Schedule> {
     pub state: S,
     pub ctx: S::Context,
     pub schedule: C,
     pub metrics: Vec<Metrics>,
-    _gen: std::marker::PhantomData<G>,
 }
 
-impl<G: Rng, S: AnnealingState<G>, C: Schedule> Annealer<G, S, C> {
+impl<S: AnnealingState, C: Schedule> Annealer<S, C> {
     pub fn new(state: S, ctx: S::Context, schedule: C) -> Self {
         Self {
             state,
             ctx,
             schedule,
             metrics: Vec::new(),
-            _gen: std::marker::PhantomData,
         }
     }
 
-    pub fn anneal<const METRICS: bool>(&mut self, rng: &mut G) -> S {
+    pub fn anneal<G: Rng, const METRICS: bool>(&mut self, rng: &mut G) -> S {
         let mut best_state = self.state.clone();
         let mut best_energy = self.state.energy(&self.ctx);
         let mut current_energy = best_energy;
@@ -250,7 +249,7 @@ impl<G: Rng, S: AnnealingState<G>, C: Schedule> Annealer<G, S, C> {
                 None
             };
 
-            let op = S::Transition::choose(rng, &self.ctx);
+            let op = S::Transition::choose(rng, &self.ctx, &self.state);
 
             let accept = if let Some(_restore) = self.state.apply(&self.ctx, &op) {
                 let temperature = self.schedule.temperature(&progress);
@@ -298,25 +297,25 @@ impl<G: Rng, S: AnnealingState<G>, C: Schedule> Annealer<G, S, C> {
     }
 }
 
-impl<G: Rng, S: AnnealingStateBack<G>, C: Schedule> Annealer<G, S, C> {
+impl<S: AnnealingStateBack, C: Schedule> Annealer<S, C> {
     /// Simulated Annealing algorithm
     /// minimize f(x) where x is a state
     /// Use BACK instead of CLONE when you want to abort and return to the state.
-    pub fn anneal_back<const METRICS: bool>(&mut self, rng: &mut G) -> S {
+    pub fn anneal_back<G: Rng, const METRICS: bool>(&mut self, rng: &mut G) -> S {
         let mut best_state = self.state.clone();
         let mut best_energy = self.state.energy(&self.ctx);
         let mut current_energy = best_energy;
         let mut progress = Progress::zero();
 
         while self.schedule.should_continue(&progress) {
-            let op = Transition::choose(rng, &self.ctx);
+            let op = Transition::choose(rng, &self.ctx, &self.state);
             if let Some(restore) = self.state.apply_with_restore(&mut self.ctx, &op) {
                 let temperature = self.schedule.temperature(&progress);
                 let new_energy = self.state.energy(&self.ctx);
                 let delta = (new_energy - current_energy).into();
                 let p = rng.gen_range(0.0..=1.0);
                 if delta.is_sign_positive() && (-delta / temperature).exp() > p {
-                    self.state.back(&mut self.ctx, &restore);
+                    self.state.back(&self.ctx, &restore);
                 } else {
                     current_energy = new_energy;
                     if current_energy < best_energy {
@@ -332,18 +331,18 @@ impl<G: Rng, S: AnnealingStateBack<G>, C: Schedule> Annealer<G, S, C> {
     }
 }
 
-impl<G: Rng, S: AnnealingStatePeeking<G>, C: Schedule> Annealer<G, S, C> {
+impl<S: AnnealingStatePeeking, C: Schedule> Annealer<S, C> {
     /// Simulated Annealing algorithm
     /// minimize f(x) where x is a state
     /// Use peek_energy instead of apply when the energy of the next state can be calculated efficiently without updating the state.
-    pub fn anneal_peek<const METRICS: bool>(&mut self, rng: &mut G) -> S {
+    pub fn anneal_peek<G: Rng, const METRICS: bool>(&mut self, rng: &mut G) -> S {
         let mut best_state = self.state.clone();
         let mut best_energy = self.state.energy(&self.ctx);
         let mut current_energy = best_energy;
         let mut progress = Progress::zero();
 
         while self.schedule.should_continue(&progress) {
-            let op = Transition::choose(rng, &self.ctx);
+            let op = Transition::choose(rng, &self.ctx, &self.state);
             if let Some(new_energy) = self.state.peek_energy(&self.ctx, &op, current_energy) {
                 let temperature = self.schedule.temperature(&progress);
                 let delta = (new_energy - current_energy).into();
@@ -388,10 +387,11 @@ mod tests {
         Mul(f64),
     }
 
-    impl<G: Rng> Transition<G> for QuadraticFunctionTransition {
+    impl Transition for QuadraticFunctionTransition {
         type Context = QuadraticFunction;
+        type State = QuadraticFunctionState;
 
-        fn choose(rng: &mut G, _ctx: &Self::Context) -> Self {
+        fn choose<G: Rng>(rng: &mut G, _ctx: &Self::Context, _state: &Self::State) -> Self {
             match rng.gen_range(0..=1) {
                 0 => Self::Add(rng.gen_range(-10.0..=10.0)),
                 1 => Self::Mul(rng.gen_range(0.3..=1.1)),
@@ -410,7 +410,7 @@ mod tests {
         }
     }
 
-    impl<G: Rng> AnnealingState<G> for QuadraticFunctionState {
+    impl AnnealingState for QuadraticFunctionState {
         type Transition = QuadraticFunctionTransition;
 
         fn apply(&mut self, _ctx: &Self::Context, op: &Self::Transition) -> Option<()> {
@@ -439,7 +439,7 @@ mod tests {
             schedule::LinearStepSchedule::new(1000.0, 0.01, 10000),
         );
 
-        let state = annealer.anneal::<false>(&mut rand::thread_rng());
+        let state = annealer.anneal::<_, false>(&mut rand::thread_rng());
 
         let QuadraticFunction { a, b, .. } = annealer.ctx;
         let answer = -b / (2.0 * a);
@@ -460,7 +460,7 @@ mod tests {
             schedule::LinearStepSchedule::new(1000.0, 0.01, 10000),
         );
 
-        let state = annealer.anneal::<true>(&mut rand::thread_rng());
+        let state = annealer.anneal::<_, true>(&mut rand::thread_rng());
 
         let QuadraticFunction { a, b, .. } = annealer.ctx;
         let answer = -b / (2.0 * a);
