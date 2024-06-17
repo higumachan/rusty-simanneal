@@ -249,6 +249,7 @@ impl<S: AnnealingState, C: Schedule> Annealer<S, C> {
                 None
             };
 
+            let prev_state = self.state.clone();
             let op = S::Transition::choose(rng, &self.ctx, &self.state);
 
             let accept = if let Some(_restore) = self.state.apply(&self.ctx, &op) {
@@ -265,7 +266,7 @@ impl<S: AnnealingState, C: Schedule> Annealer<S, C> {
                 if delta.is_sign_positive() && (-delta / temperature).exp() < p {
                     // reject
                     debug!("reject {} -> {}", current_energy.into(), new_energy.into());
-                    self.state = self.state.clone();
+                    self.state = prev_state;
                     false
                 } else {
                     // accept
@@ -309,12 +310,12 @@ impl<S: AnnealingStateBack, C: Schedule> Annealer<S, C> {
 
         while self.schedule.should_continue(&progress) {
             let op = Transition::choose(rng, &self.ctx, &self.state);
-            if let Some(restore) = self.state.apply_with_restore(&mut self.ctx, &op) {
+            if let Some(restore) = self.state.apply_with_restore(&self.ctx, &op) {
                 let temperature = self.schedule.temperature(&progress);
                 let new_energy = self.state.energy(&self.ctx);
                 let delta = (new_energy - current_energy).into();
                 let p = rng.gen_range(0.0..=1.0);
-                if delta.is_sign_positive() && (-delta / temperature).exp() > p {
+                if delta.is_sign_positive() && (-delta / temperature).exp() < p {
                     self.state.back(&self.ctx, &restore);
                 } else {
                     current_energy = new_energy;
