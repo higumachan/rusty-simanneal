@@ -252,14 +252,17 @@ impl<S: AnnealingState, C: Schedule> Annealer<S, C> {
             let prev_state = self.state.clone();
             let op = S::Transition::choose(rng, &self.ctx, &self.state);
 
-            let accept = if let Some(_restore) = self.state.apply(&self.ctx, &op) {
+            let (accept, improvement) = if let Some(_restore) = self.state.apply(&self.ctx, &op) {
                 let temperature = self.schedule.temperature(&progress);
                 let new_energy = self.state.energy(&self.ctx);
 
-                if new_energy < best_energy {
+                let improvement = if new_energy < best_energy {
                     best_energy = new_energy;
                     best_state = self.state.clone();
-                }
+                    true
+                } else {
+                    false
+                };
 
                 let delta = (new_energy - current_energy).into();
                 let p = rng.gen_range(0.0..=1.0);
@@ -267,15 +270,15 @@ impl<S: AnnealingState, C: Schedule> Annealer<S, C> {
                     // reject
                     debug!("reject {} -> {}", current_energy.into(), new_energy.into());
                     self.state = prev_state;
-                    false
+                    (false, improvement)
                 } else {
                     // accept
                     debug!("accept {} -> {}", current_energy.into(), new_energy.into());
                     current_energy = new_energy;
-                    true
+                    (true, improvement)
                 }
             } else {
-                false
+                (false, false)
             };
 
             if METRICS {
@@ -285,6 +288,7 @@ impl<S: AnnealingState, C: Schedule> Annealer<S, C> {
                     next_energy: self.state.energy(&self.ctx).into(),
                     delta: (self.state.energy(&self.ctx) - current_energy).into(),
                     accept,
+                    improvement,
                     progress: self.schedule.progress_0_1(&progress),
                     temperature: self.schedule.temperature(&progress),
                     step_duration: start.expect("METRICS = true").elapsed(),
