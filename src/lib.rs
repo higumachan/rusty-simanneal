@@ -432,6 +432,47 @@ mod tests {
         }
     }
 
+    impl AnnealingStatePeeking for QuadraticFunctionState {
+        fn peek_energy(
+            &self,
+            ctx: &Self::Context,
+            op: &Self::Transition,
+            _current_energy: Self::Energy,
+        ) -> Option<Self::Energy> {
+            let new_x = match op {
+                QuadraticFunctionTransition::Add(x) => self.x + x,
+                QuadraticFunctionTransition::Mul(x) => self.x * x,
+            };
+            let f = ctx.a * new_x * new_x + ctx.b * new_x + ctx.c;
+            Some(f * ctx.a.signum())
+        }
+    }
+
+    impl AnnealingStateBack for QuadraticFunctionState {
+        type Restore = f64;
+
+        fn apply_with_restore(
+            &mut self,
+            _ctx: &Self::Context,
+            op: &Self::Transition,
+        ) -> Option<Self::Restore> {
+            let prev_x = self.x;
+            match op {
+                QuadraticFunctionTransition::Add(x) => {
+                    self.x += x;
+                }
+                QuadraticFunctionTransition::Mul(x) => {
+                    self.x *= x;
+                }
+            }
+            Some(prev_x)
+        }
+
+        fn back(&mut self, _ctx: &Self::Context, restore: &Self::Restore) {
+            self.x = *restore;
+        }
+    }
+
     #[test]
     fn solve_quadratic_function() {
         let mut annealer = Annealer::new(
