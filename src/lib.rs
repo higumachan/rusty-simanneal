@@ -355,9 +355,14 @@ impl<S: AnnealingStatePeeking, C: Schedule> Annealer<S, C> {
                 let temperature = self.schedule.temperature(&progress);
                 let delta = (new_energy - current_energy).into();
                 let p = rng.gen_range(0.0..=1.0);
-                if !(delta.is_sign_positive() && (-delta / temperature).exp() > p) {
+                if !(delta.is_sign_positive() && (-delta / temperature).exp() < p) {
                     // accept
                     self.state.apply(&self.ctx, &op);
+                    // assert_ulps_eq!(
+                    //     new_energy.into(),
+                    //     self.state.energy(&self.ctx).into(),
+                    //     epsilon = 0.01
+                    // );
                     current_energy = new_energy;
                     if current_energy < best_energy {
                         best_energy = current_energy;
