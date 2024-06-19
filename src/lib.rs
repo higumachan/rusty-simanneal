@@ -25,10 +25,16 @@ pub mod schedule;
 ///     Mul(f64),
 /// }
 ///
-/// impl<G: Rng> Transition<G> for QuadraticFunctionTransition {
-///     type Context = QuadraticFunction;
+/// #[derive(Debug, Clone)]
+/// struct QuadraticFunctionState {
+///     x: f64,
+/// }
 ///
-///     fn choose(rng: &mut G, _ctx: &Self::Context) -> Self {
+/// impl Transition for QuadraticFunctionTransition {
+///     type Context = QuadraticFunction;
+///     type State = QuadraticFunctionState;
+///
+///     fn choose<G: Rng>(rng: &mut G, _ctx: &Self::Context, _state: &Self::State) -> Self {
 ///         match rng.gen_range(0..=1) {
 ///             0 => Self::Add(rng.gen_range(-10.0..=10.0)),
 ///             1 => Self::Mul(rng.gen_range(0.3..=1.1)),
@@ -48,7 +54,10 @@ pub mod schedule;
 ///     b: 10.0,
 ///     c: 30.0,
 /// };
-/// let op = QuadraticFunctionTransition::choose(&mut rand::thread_rng(), &func);
+///
+/// let state = QuadraticFunctionState { x: 100.0 };
+///
+/// let op = QuadraticFunctionTransition::choose(&mut rand::thread_rng(), &func, &state);
 /// assert!(matches!(
 ///     op,
 ///     QuadraticFunctionTransition::Add(_) | QuadraticFunctionTransition::Mul(_)
@@ -96,15 +105,7 @@ pub trait Transition: Sized + Clone + Copy {
 /// assert_eq!(state.energy(&func), 5.0);
 /// ```
 pub trait EnergyMeasurable: Sized + Clone + Debug {
-    type Energy: PartialOrd
-        + Clone
-        + Copy
-        + Debug
-        + Sub<Output = Self::Energy>
-        + Signed
-        + Num
-        + Neg
-        + Into<f64>;
+    type Energy: PartialOrd + Clone + Copy + Debug + Sub + Signed + Num + Neg + Into<f64>;
     type Context;
 
     fn energy(&self, ctx: &Self::Context) -> Self::Energy;
@@ -113,6 +114,7 @@ pub trait EnergyMeasurable: Sized + Clone + Debug {
 /// AnnealingState is a trait to be implemented when the state can be updated by a transition.
 /// e.g. quadratic function
 /// ```rust
+/// use rand::prelude::ThreadRng;
 /// use rand::Rng;
 /// use rusty_simanneal::{Annealer, AnnealingState, EnergyMeasurable, schedule, Transition};
 ///
@@ -122,10 +124,11 @@ pub trait EnergyMeasurable: Sized + Clone + Debug {
 ///     Mul(f64),
 /// }
 ///
-/// impl<G: Rng> Transition<G> for QuadraticFunctionTransition {
+/// impl Transition for QuadraticFunctionTransition {
 ///     type Context = QuadraticFunction;
+///     type State = QuadraticFunctionState;
 ///
-///     fn choose(rng: &mut G, _ctx: &Self::Context) -> Self {
+///     fn choose<G: Rng>(rng: &mut G, _ctx: &Self::Context, _state: &Self::State) -> Self {
 ///         match rng.gen_range(0..=1) {
 ///             0 => Self::Add(rng.gen_range(-10.0..=10.0)),
 ///             1 => Self::Mul(rng.gen_range(0.3..=1.1)),
@@ -154,7 +157,7 @@ pub trait EnergyMeasurable: Sized + Clone + Debug {
 ///     }
 /// }
 ///
-/// impl<G: Rng> AnnealingState<G> for QuadraticFunctionState {
+/// impl AnnealingState for QuadraticFunctionState {
 ///     type Transition = QuadraticFunctionTransition;
 ///
 ///     fn apply(&mut self, _ctx: &Self::Context, op: &Self::Transition) -> Option<()> {
@@ -178,7 +181,7 @@ pub trait EnergyMeasurable: Sized + Clone + Debug {
 ///
 /// let mut state = QuadraticFunctionState { x: 100.0 };
 /// let mut annealer = Annealer::new(state, func, schedule::LinearStepSchedule::new(1000.0, 0.01, 10000));
-/// let best_state = annealer.anneal::<false>(&mut rand::thread_rng());
+/// let best_state = annealer.anneal::<_, false>(&mut rand::thread_rng());
 /// assert!((best_state.x - (-5.0)).abs() < 0.1);
 /// ```
 pub trait AnnealingState: EnergyMeasurable {
