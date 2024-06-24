@@ -12,6 +12,7 @@ use crate::schedule::Progress;
 
 mod metrics;
 pub mod schedule;
+pub mod test_implementer;
 
 /// Transition is a trait to be implemented when the state can be updated by a transition.
 /// e.g.
@@ -109,6 +110,38 @@ pub trait EnergyMeasurable: Sized + Clone + Debug {
     type Context;
 
     fn energy(&self, ctx: &Self::Context) -> Self::Energy;
+}
+
+/// InitialState is a trait to be implemented when the initial state can be generated.
+/// e.g.
+/// ```rust
+/// use rand::Rng;
+/// use rusty_simanneal::InitialState;
+///
+/// struct QuadraticFunction {
+///    a: f64,
+///    b: f64,
+///    c: f64,
+/// }
+///
+/// #[derive(Debug, Clone)]
+/// struct QuadraticFunctionState {
+///     x: f64,
+/// }
+///
+/// impl InitialState for QuadraticFunction {
+///     type Context = QuadraticFunctionState;
+///     fn initial_state<G: Rng>(&self, rng: &mut G, _ctx: &Self::Context) -> QuadraticFunctionState {
+///         QuadraticFunctionState {
+///             x: rng.gen_range(-100.0..=100.0),
+///        }
+///    }
+/// }
+/// ```
+pub trait InitialState {
+    type Context;
+
+    fn initial_state<G: Rng>(&self, rng: &mut G, ctx: &Self::Context) -> Self;
 }
 
 /// AnnealingState is a trait to be implemented when the state can be updated by a transition.

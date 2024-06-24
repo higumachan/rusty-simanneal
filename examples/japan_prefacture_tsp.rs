@@ -238,3 +238,51 @@ fn main() {
         println!("{:?}", best_state.energy(&ctx));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rusty_simanneal::test_implementer::{run_back_and_check, run_peeking_and_check};
+
+    use super::*;
+
+    #[test]
+    fn test_apply_and_back() {
+        let (ctx, mut state) = init_data();
+        let mut rng = SmallRng::seed_from_u64(0);
+
+        run_back_and_check(&mut rng, &ctx, &mut state, 10000, 12);
+    }
+
+    #[test]
+    fn test_peeking_energy() {
+        let (ctx, mut state) = init_data();
+        let mut rng = SmallRng::seed_from_u64(0);
+
+        // peeking_energy is not perfect equality allows a little error
+        run_peeking_and_check(&mut rng, &ctx, &mut state, 10000, 5);
+    }
+
+    fn init_data() -> (TspContext, TspState) {
+        let mut reader = include_bytes!("data/location.txt").to_vec();
+        let rdr = csv::ReaderBuilder::new().from_reader(&reader[..]);
+
+        let rows: Result<Vec<_>, _> = rdr.into_deserialize::<Row>().collect();
+        let rows = rows.unwrap();
+
+        let mut distance_matrix = vec![vec![0.0; rows.len()]; rows.len()];
+        for i in 0..rows.len() {
+            for j in 0..rows.len() {
+                let x = rows[i].longitude - rows[j].longitude;
+                let y = rows[i].latitude - rows[j].latitude;
+                distance_matrix[i][j] = (x * x + y * y).sqrt();
+            }
+        }
+
+        let ctx = TspContext { distance_matrix };
+        let state = TspState {
+            route: (0..rows.len()).collect::<Vec<_>>().try_into().unwrap(),
+        };
+
+        (ctx, state)
+    }
+}
