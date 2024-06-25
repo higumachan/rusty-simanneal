@@ -17,12 +17,17 @@ pub fn run_peeking_and_check<S: AnnealingStatePeeking>(
             let new_energy_ref = state.energy(context);
             assert_eq!(
                 round_decimal_places(new_energy.into(), decimal_places),
-                round_decimal_places(new_energy_ref.into(), decimal_places)
+                round_decimal_places(new_energy_ref.into(), decimal_places),
+                "transition: {:?}, new_energy: {:?}, new_energy_ref: {:?}",
+                transition,
+                new_energy,
+                new_energy_ref
             );
         }
     }
 }
 
+/// Semi auto test the implementation of AnnealingStateBack.
 pub fn run_back_and_check<S: AnnealingStateBack>(
     rng: &mut impl rand::Rng,
     context: &S::Context,
