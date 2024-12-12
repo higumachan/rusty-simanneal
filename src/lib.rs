@@ -414,7 +414,7 @@ impl<S: AnnealingStatePeeking, C: Schedule> Annealer<S, C> {
 mod tests {
     use super::*;
 
-    // solve f(x) = a x^2 + b x + c
+    /// solve f(x) = a x^2 + b x + c
     #[derive(Debug, Clone)]
     struct QuadraticFunction {
         a: f64,
